@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERC20 Balance Checker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.5/ethers.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 50px;
+            text-align: center;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #result {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        #error {
+            margin-top: 20px;
+            color: red;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>ERC20 Token Balance Checker</h1>
+    <button id="balanceBtn">Check My Token Balance</button>
+    <div id="result"></div>
+    <div id="error"></div>
+
+    <script>
+        // CONFIGURATION: Replace with your details from exercise 4
+        const ERC20_CONTRACT_ADDRESS = '0xYOUR_ERC20_CONTRACT_ADDRESS_HERE'; 
+        const TOKEN_SYMBOL = 'TOKEN'; 
+
+        // Sepolia Chain ID in Hexadecimal (11155111 = 0xaa36a7)
+        const SEPOLIA_CHAIN_ID = '0xaa36a7';
+
+        // Minimal ABI containing only the functions we need to interact with
+        const minABI = [
+            // balanceOf(address)
+            "function balanceOf(address owner) view returns (uint256)",
+            // decimals() to accurately format the token balance
+            "function decimals() view returns (uint8)"
+        ];
+
+        const balanceBtn = document.getElementById('balanceBtn');
+        const resultDiv = document.getElementById('result');
+        const errorDiv = document.getElementById('error');
+
+        balanceBtn.addEventListener('click', async () => {
+            // Clear previous outputs
+            resultDiv.innerText = '';
+            errorDiv.innerText = '';
+
+            // 1. Check if MetaMask is installed
+            if (!window.ethereum) {
+                errorDiv.innerText = "Please install MetaMask to use this feature.";
+                return;
+            }
+
+            try {
+                balanceBtn.disabled = true;
+                resultDiv.innerText = "Connecting to MetaMask...";
+
+                // 2. Request account access and get the selected address
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                const currentAccount = accounts[0];
+
+                // 3. Initialize Ethers provider using MetaMask
+                const provider = new ethers.BrowserProvider(window.ethereum);
+
+                // 4. Verify/Switch network to Sepolia
+                const network = await provider.getNetwork();
+                if (network.chainId !== BigInt(11155111)) {
+                    resultDiv.innerText = "Switching network to Sepolia...";
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: SEPOLIA_CHAIN_ID }],
+                        });
+                    } catch (switchError) {
+                        if (switchError.code === 4902) {
+                            errorDiv.innerText = "Sepolia network is not added to your MetaMask.";
+                        } else {
+                            errorDiv.innerText = "Failed to switch to Sepolia network.";
+                        }
+                        balanceBtn.disabled = false;
+                        return;
+                    }
+                }
+
+                // Re-instantiate provider after network switch to ensure synchronization
+                const activeProvider = new ethers.BrowserProvider(window.ethereum);
+
+                resultDiv.innerText = `Fetching balance for ${currentAccount}...`;
+
+                // 5. Connect to the ERC20 Contract
+                const contract = new ethers.Contract(ERC20_CONTRACT_ADDRESS, minABI, activeProvider);
+
+                // 6. Execute contract calls (decimals and balanceOf) concurrently
+                const [rawBalance, decimals] = await Promise.all([
+                    contract.balanceOf(currentAccount),
+                    contract.decimals()
+                ]);
+
+                // 7. Format the big integer balance with correct decimals
+                const formattedBalance = ethers.formatUnits(rawBalance, decimals);
+
+                // 8. Output results
+                resultDiv.innerText = `Account: ${currentAccount}\nBalance: ${formattedBalance} ${TOKEN_SYMBOL}`;
+
+            } catch (err) {
+                console.error(err);
+                errorDiv.innerText = err.message || "An error occurred while calling the contract.";
+            } finally {
+                balanceBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
